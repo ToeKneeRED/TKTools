@@ -32,5 +32,7 @@ target("Tools")
 
     add_packages("spdlog", {public = true, wchar = true})
 
+    -- add_defines("USE_STD_OUTPUT")
+
     add_headerfiles("include/*.h")
     -- add_files("src/*.cpp")

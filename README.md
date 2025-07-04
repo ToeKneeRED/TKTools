@@ -8,6 +8,8 @@ Includes the tools I use in my projects
 - Log (spdlog/stdout)
 - Format (ANSI color codes/formatting)
 - TKString (std::string wrapper)
+- Event
+- Handler
 
 ## Requires
 - xmake

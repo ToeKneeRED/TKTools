@@ -6,16 +6,22 @@
 #include "spdlog/sinks/stdout_color_sinks.h"
 #include "spdlog/sinks/basic_file_sink.h"
 
+#define STRINGIZE(x) #x
+#define STATIC_ASSERT_MSG(msg) msg " " __FILE__ ":" STRINGIZE(__LINE__) " in function " __FUNCSIG__
+
 #ifdef USE_STD_OUTPUT
 #define LOG_OUTPUT(prefix, color, reset, msg, ...) \
     std::cout << std::format(prefix, color, reset) << std::vformat(msg, std::make_format_args(__VA_ARGS__)) << std::endl
 
-#define LOG_WOUTPUT(prefix, color, reset, msg, ...) \
-    std::wcout << std::format(prefix, color, reset) << std::vformat(msg, std::make_format_args(__VA_ARGS__)) << std::endl
+#define LOG_WOUTPUT(prefix, color, reset, msg, ...)                                                          \
+    std::wcout << std::format(prefix, color, reset) << std::vformat(msg, std::make_format_args(__VA_ARGS__)) \
+               << std::endl
 #else
-#define LOG_OUTPUT(prefix, color, reset, msg, ...) spdlog::info("[{}{}{}] {}", color, prefix, reset, std::vformat(msg, std::make_format_args(__VA_ARGS__)))
+#define LOG_OUTPUT(prefix, color, reset, msg, ...) \
+    spdlog::info("[{}{}{}] {}{}", color, prefix, reset, fmt::format(fmt::runtime(msg), __VA_ARGS__), NarrowText::Reset)
 
-#define LOG_WOUTPUT(prefix, color, reset, msg, ...) spdlog::info(L"[{}{}{}] {}", color, prefix, reset, std::vformat(msg, std::make_wformat_args(__VA_ARGS__)))
+#define LOG_WOUTPUT(prefix, color, reset, msg, ...) \
+    spdlog::info(L"[{}{}{}] {}{}", color, prefix, reset, fmt::format(fmt::runtime(msg), __VA_ARGS__), WideText::Reset)
 #endif
 
 struct Log
@@ -49,9 +55,11 @@ struct Log
             static inline const wchar_t* Debug = WideText::Foreground::Cyan;
         };
 
-        template<typename T>
-        void Set(const Type& acType, const T* acColor)
+        template <typename T> void Set(const Type& acType, const T* acColor)
         {
+            static_assert(
+                !std::is_same_v<T, char> && !std::is_same_v<T, wchar_t>, STATIC_ASSERT_MSG("Unsupported type"));
+
             if constexpr (std::is_same_v<T, char>)
             {
                 switch (acType)
@@ -74,25 +82,20 @@ struct Log
                 case Type::Debug: Wide::Debug = acColor; break;
                 }
             }
-            else
-            {
-                static_assert(false, "Incorrect type given to Colors::Set");
-            }
         }
     };
-    
-    static Log& Get()
-    {
-        static Log s_instance;
 
+    static Log* Get()
+    {
+        static Log* s_instance = new Log();
         return s_instance;
     }
-    
+
     template <typename T, typename... Args> void Print(const T* acMsg, Args&&... aArgs) noexcept
     {
-        if constexpr (std::is_same_v<T, char>)
+        if constexpr (std::is_same_v<T, char> || std::is_same_v<T, int> || std::is_same_v<T, bool> || std::is_same_v<T, uintptr_t>)
         {
-            LOG_OUTPUT("Log", Colors::Narrow::Print, Text<T>::Reset, acMsg, std::forward<Args>(aArgs)...);
+            LOG_OUTPUT("Log", Colors::Narrow::Print, NarrowText::Reset, acMsg, std::forward<Args>(aArgs)...);
         }
         else if constexpr (std::is_same_v<T, wchar_t>)
         {
@@ -150,6 +153,8 @@ struct Log
 
     template <typename T> void SetColor(const Type& acLogType, const T* acColor)
     {
+        static_assert(!std::is_same_v<T, char> && !std::is_same_v<T, wchar_t>, STATIC_ASSERT_MSG("Unsupported type"));
+
         if constexpr (std::is_same_v<T, char>)
         {
             switch (acLogType)
@@ -172,10 +177,6 @@ struct Log
             case Type::Debug: Colors::Wide::Debug = acColor; break;
             }
         }
-        else
-        {
-            static_assert(false, "Incorrect type given to Colors::Set");
-        }
     }
 
     ~Log() = default;
@@ -184,7 +185,7 @@ struct Log
     Log& operator=(const Log&) = delete;
     Log& operator=(Log&&) = delete;
 
-    HWND ConsoleHandle;
+    HWND ConsoleHandle = nullptr;
     HANDLE ThreadHandle;
 
 private:
@@ -212,7 +213,6 @@ private:
             if (freopen_s(&stderrFile, "conout$", "w", stderr) != 0)
                 std::cerr << "Error redirecting stderr\n";
 
-            // console output handling
             HANDLE stdHandle = GetStdHandle(STD_OUTPUT_HANDLE);
 
             if (stdHandle == INVALID_HANDLE_VALUE)
@@ -234,26 +234,16 @@ private:
             cursorInfo.dwSize = 1;
             cursorInfo.bVisible = FALSE;
             SetConsoleCursorInfo(stdHandle, &cursorInfo);
-
-            stdHandle = GetStdHandle(STD_INPUT_HANDLE);
-
-            if (stdHandle == INVALID_HANDLE_VALUE)
-            {
-                std::cerr << "Error: unable to get handle to stdout.\n";
-                return;
-            }
-
             SetConsoleMode(stdHandle, ENABLE_EXTENDED_FLAGS);
-            
-            // logger
-            auto narrow = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-            narrow->set_level(spdlog::level::debug);
-            narrow->set_pattern("[%H:%M:%S.%e] %v");
 
-            auto narrowLogger = std::make_shared<spdlog::logger>("", spdlog::sinks_init_list{narrow});
-            narrowLogger->set_level(spdlog::level::debug);
+            auto sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+            sink->set_level(spdlog::level::debug);
+            sink->set_pattern("[%H:%M:%S.%e] %v");
 
-            spdlog::set_default_logger(narrowLogger);
+            const auto cLogger = std::make_shared<spdlog::logger>("", spdlog::sinks_init_list{sink});
+            cLogger->set_level(spdlog::level::debug);
+
+            set_default_logger(cLogger);
         }
     }
 };
