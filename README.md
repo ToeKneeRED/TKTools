@@ -1,18 +1,20 @@
 <img src="https://toeknee.dev/assets/profile.png" alt="profile" width="200"/>
 
 # TKTools
-Includes the tools I use in my projects
+Some random tools I've made
 
 
 ## Features
 - Log (spdlog/stdout)
-- Format (ANSI color codes/formatting)
-- TKString (std::string wrapper)
-- Event
+  - Format (ANSI color codes/formatting)
+- Dashboard (QT)
+    - Components
+- Events
 - Handler
+- Basic DLL Injector
 
 ## Requires
-- xmake
+- [xmake](https://xmake.io/)
 - C++23
 
 ## Build
