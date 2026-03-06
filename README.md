@@ -1,4 +1,4 @@
-<img src="https://toeknee.dev/assets/profile.png" alt="profile" width="200"/>
+<img src="https://toeknee.dev/img/resume-photo.png" alt="profile" width="200"/>
 
 # TKTools
 Some random tools I've made
