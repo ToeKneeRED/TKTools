@@ -6,6 +6,21 @@
 #include "spdlog/sinks/stdout_color_sinks.h"
 #include "spdlog/sinks/basic_file_sink.h"
 
+#if defined(DEBUG) || defined(_DEBUG)
+    #define LOG_ENABLED 1
+#else
+    #define LOG_ENABLED 0
+#endif
+
+#if LOG_ENABLED
+
+#define LOG_PRINT(...)   ::Log::Get()->Print(__VA_ARGS__)
+#define LOG_INFO(...)    ::Log::Get()->Info(__VA_ARGS__)
+#define LOG_VERBOSE(...) ::Log::Get()->Verbose(__VA_ARGS__)
+#define LOG_WARN(...)    ::Log::Get()->Warn(__VA_ARGS__)
+#define LOG_ERROR(...)   ::Log::Get()->Error(__VA_ARGS__)
+#define LOG_DEBUG(...)   ::Log::Get()->Debug(__VA_ARGS__)
+
 #define STRINGIZE(x) #x
 #define STATIC_ASSERT_MSG(msg) msg " " __FILE__ ":" STRINGIZE(__LINE__) " in function " __FUNCSIG__
 
@@ -19,16 +34,28 @@
 #else
 #define LOG_OUTPUT(prefix, color, reset, msg, ...) \
     spdlog::info("[{}{}{}] {}{}", color, prefix, reset, fmt::format(fmt::runtime(msg), __VA_ARGS__), NarrowText::Reset)
+#define LOG_OUTPUT_MSG(msg, ...) \
+    spdlog::info("{}{}", fmt::format(fmt::runtime(msg), __VA_ARGS__), NarrowText::Reset)
 
 #define LOG_WOUTPUT(prefix, color, reset, msg, ...) \
     spdlog::info(L"[{}{}{}] {}{}", color, prefix, reset, fmt::format(fmt::runtime(msg), __VA_ARGS__), WideText::Reset)
+#define LOG_WOUTPUT_MSG(msg, ...) \
+    spdlog::info(L"{}{}", fmt::format(fmt::runtime(msg), __VA_ARGS__), WideText::Reset)
 #endif
+
+// only valid in namespace scope
+template <typename T>
+constexpr bool IsSupportedNarrowType =
+    std::is_same_v<T, int> || std::is_same_v<T, char> || std::is_same_v<T, bool> || std::is_same_v<T, int32_t> ||
+    std::is_same_v<T, int64_t> || std::is_same_v<T, uintptr_t> || std::is_same_v<T, std::vector<std::string>>;
+template <typename T> constexpr bool IsSupportedWideType = std::is_same_v<T, wchar_t>;
 
 struct Log
 {
     enum class Type : uint8_t
     {
         Print = 0,
+        Info,
         Verbose,
         Warn,
         Error,
@@ -40,6 +67,7 @@ struct Log
         struct Narrow
         {
             static inline const char* Print = NarrowText::Foreground::White;
+            static inline const char* Info = NarrowText::Foreground::White;
             static inline const char* Verbose = NarrowText::Foreground::Gray;
             static inline const char* Warn = NarrowText::Foreground::Yellow;
             static inline const char* Error = NarrowText::Foreground::LightRed;
@@ -48,6 +76,7 @@ struct Log
 
         struct Wide
         {
+            static inline const wchar_t* Info = WideText::Foreground::White;
             static inline const wchar_t* Print = WideText::Foreground::White;
             static inline const wchar_t* Verbose = WideText::Foreground::Gray;
             static inline const wchar_t* Warn = WideText::Foreground::Yellow;
@@ -64,22 +93,22 @@ struct Log
             {
                 switch (acType)
                 {
-                case Type::Print: Narrow::Print = acColor; break;
-                case Type::Verbose: Narrow::Verbose = acColor; break;
-                case Type::Warn: Narrow::Warn = acColor; break;
-                case Type::Error: Narrow::Error = acColor; break;
-                case Type::Debug: Narrow::Debug = acColor; break;
+                    case Type::Print: Narrow::Print = acColor; break;
+                    case Type::Verbose: Narrow::Verbose = acColor; break;
+                    case Type::Warn: Narrow::Warn = acColor; break;
+                    case Type::Error: Narrow::Error = acColor; break;
+                    case Type::Debug: Narrow::Debug = acColor; break;
                 }
             }
             else if constexpr (std::is_same_v<T, wchar_t>)
             {
                 switch (acType)
                 {
-                case Type::Print: Wide::Print = acColor; break;
-                case Type::Verbose: Wide::Verbose = acColor; break;
-                case Type::Warn: Wide::Warn = acColor; break;
-                case Type::Error: Wide::Error = acColor; break;
-                case Type::Debug: Wide::Debug = acColor; break;
+                    case Type::Print: Wide::Print = acColor; break;
+                    case Type::Verbose: Wide::Verbose = acColor; break;
+                    case Type::Warn: Wide::Warn = acColor; break;
+                    case Type::Error: Wide::Error = acColor; break;
+                    case Type::Debug: Wide::Debug = acColor; break;
                 }
             }
         }
@@ -93,88 +122,60 @@ struct Log
 
     template <typename T, typename... Args> void Print(const T* acMsg, Args&&... aArgs) noexcept
     {
-        if constexpr (std::is_same_v<T, char> || std::is_same_v<T, int> || std::is_same_v<T, bool> || std::is_same_v<T, uintptr_t>)
-        {
-            LOG_OUTPUT("Log", Colors::Narrow::Print, NarrowText::Reset, acMsg, std::forward<Args>(aArgs)...);
-        }
-        else if constexpr (std::is_same_v<T, wchar_t>)
-        {
-            LOG_WOUTPUT(L"Log", Colors::Wide::Print, Text<T>::Reset, acMsg, std::forward<Args>(aArgs)...);
-        }
+        LogInternal_msg(acMsg, std::forward<Args>(aArgs)...);
+    }
+
+    template <typename T, typename... Args> void Info(const T* acMsg, Args&&... aArgs) noexcept
+    {
+        LogInternal("Info", acMsg, std::forward<Args>(aArgs)...);
     }
 
     template <typename T, typename... Args> void Verbose(const T* acMsg, Args&&... aArgs) noexcept
     {
-        if constexpr (std::is_same_v<T, char>)
-        {
-            LOG_OUTPUT("Verbose", Colors::Narrow::Verbose, Text<T>::Reset, acMsg, std::forward<Args>(aArgs)...);
-        }
-        else if constexpr (std::is_same_v<T, wchar_t>)
-        {
-            LOG_WOUTPUT(L"Verbose", Colors::Wide::Verbose, Text<T>::Reset, acMsg, std::forward<Args>(aArgs)...);
-        }
+        LogInternal("Verbose", acMsg, std::forward<Args>(aArgs)...);
     }
 
     template <typename T, typename... Args> void Warn(const T* acMsg, Args&&... aArgs) noexcept
     {
-        if constexpr (std::is_same_v<T, char>)
-        {
-            LOG_OUTPUT("Warn", Colors::Narrow::Warn, Text<T>::Reset, acMsg, std::forward<Args>(aArgs)...);
-        }
-        else if constexpr (std::is_same_v<T, wchar_t>)
-        {
-            LOG_WOUTPUT(L"Warn", Colors::Wide::Warn, Text<T>::Reset, acMsg, std::forward<Args>(aArgs)...);
-        }
+        LogInternal("Warn", acMsg, std::forward<Args>(aArgs)...);
     }
 
     template <typename T, typename... Args> void Error(const T* acMsg, Args&&... aArgs) noexcept
     {
-        if constexpr (std::is_same_v<T, char>)
-        {
-            LOG_OUTPUT("Error", Colors::Narrow::Error, Text<T>::Reset, acMsg, std::forward<Args>(aArgs)...);
-        }
-        else if constexpr (std::is_same_v<T, wchar_t>)
-        {
-            LOG_WOUTPUT(L"Error", Colors::Wide::Error, Text<T>::Reset, acMsg, std::forward<Args>(aArgs)...);
-        }
+        LogInternal("Error", acMsg, std::forward<Args>(aArgs)...);
     }
 
     template <typename T, typename... Args> void Debug(const T* acMsg, Args&&... aArgs) noexcept
     {
-        if constexpr (std::is_same_v<T, char>)
-        {
-            LOG_OUTPUT("Debug", Colors::Narrow::Debug, Text<T>::Reset, acMsg, std::forward<Args>(aArgs)...);
-        }
-        else if constexpr (std::is_same_v<T, wchar_t>)
-        {
-            LOG_WOUTPUT(L"Debug", Colors::Wide::Debug, Text<T>::Reset, acMsg, std::forward<Args>(aArgs)...);
-        }
+        LogInternal("Debug", acMsg, std::forward<Args>(aArgs)...);
     }
 
     template <typename T> void SetColor(const Type& acLogType, const T* acColor)
     {
-        static_assert(!std::is_same_v<T, char> && !std::is_same_v<T, wchar_t>, STATIC_ASSERT_MSG("Unsupported type"));
+        static_assert(!IsSupportedNarrowType<T> && !IsSupportedWideType<T>, STATIC_ASSERT_MSG("Unsupported type"));
 
-        if constexpr (std::is_same_v<T, char>)
+        if constexpr (IsSupportedNarrowType<T>)
         {
             switch (acLogType)
             {
-            case Type::Print: Colors::Narrow::Print = acColor; break;
-            case Type::Verbose: Colors::Narrow::Verbose = acColor; break;
-            case Type::Warn: Colors::Narrow::Warn = acColor; break;
-            case Type::Error: Colors::Narrow::Error = acColor; break;
-            case Type::Debug: Colors::Narrow::Debug = acColor; break;
+                case Type::Print: Colors::Narrow::Print = acColor; break;
+                case Type::Info: Colors::Narrow::Info = acColor; break;
+                case Type::Verbose: Colors::Narrow::Verbose = acColor; break;
+                case Type::Warn: Colors::Narrow::Warn = acColor; break;
+                case Type::Error: Colors::Narrow::Error = acColor; break;
+                case Type::Debug: Colors::Narrow::Debug = acColor; break;
             }
         }
-        else if constexpr (std::is_same_v<T, wchar_t>)
+        else if constexpr (IsSupportedWideType<T>)
         {
             switch (acLogType)
             {
-            case Type::Print: Colors::Wide::Print = acColor; break;
-            case Type::Verbose: Colors::Wide::Verbose = acColor; break;
-            case Type::Warn: Colors::Wide::Warn = acColor; break;
-            case Type::Error: Colors::Wide::Error = acColor; break;
-            case Type::Debug: Colors::Wide::Debug = acColor; break;
+                case Type::Print: Colors::Wide::Print = acColor; break;
+                case Type::Info: Colors::Wide::Info = acColor; break;
+                case Type::Verbose: Colors::Wide::Verbose = acColor; break;
+                case Type::Warn: Colors::Wide::Warn = acColor; break;
+                case Type::Error: Colors::Wide::Error = acColor; break;
+                case Type::Debug: Colors::Wide::Debug = acColor; break;
             }
         }
     }
@@ -186,7 +187,7 @@ struct Log
     Log& operator=(Log&&) = delete;
 
     HWND ConsoleHandle = nullptr;
-    HANDLE ThreadHandle;
+    HANDLE ThreadHandle = nullptr;
 
 private:
     Log()
@@ -204,14 +205,11 @@ private:
             FILE* stdoutFile;
             FILE* stderrFile;
 
-            if (freopen_s(&stdinFile, "conin$", "r", stdin) != 0)
-                std::cerr << "Error redirecting stdin\n";
+            if (freopen_s(&stdinFile, "conin$", "r", stdin) != 0) std::cerr << "Error redirecting stdin\n";
 
-            if (freopen_s(&stdoutFile, "conout$", "w", stdout) != 0)
-                std::cerr << "Error redirecting stdout\n";
+            if (freopen_s(&stdoutFile, "conout$", "w", stdout) != 0) std::cerr << "Error redirecting stdout\n";
 
-            if (freopen_s(&stderrFile, "conout$", "w", stderr) != 0)
-                std::cerr << "Error redirecting stderr\n";
+            if (freopen_s(&stderrFile, "conout$", "w", stderr) != 0) std::cerr << "Error redirecting stderr\n";
 
             HANDLE stdHandle = GetStdHandle(STD_OUTPUT_HANDLE);
 
@@ -226,8 +224,7 @@ private:
             GetConsoleMode(stdHandle, &dwMode);
             dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
             SetConsoleMode(stdHandle, dwMode);
-            if (!SetConsoleMode(stdHandle, dwMode))
-                std::cerr << "Error: unable to set console mode.\n";
+            if (!SetConsoleMode(stdHandle, dwMode)) std::cerr << "Error: unable to set console mode.\n";
 
             CONSOLE_CURSOR_INFO cursorInfo;
             GetConsoleCursorInfo(stdHandle, &cursorInfo);
@@ -246,4 +243,42 @@ private:
             set_default_logger(cLogger);
         }
     }
+
+    template <typename T, typename... Args> void LogInternal_msg(const T* acMsg, Args&&... aArgs)
+    {
+        if constexpr (IsSupportedNarrowType<T>)
+        {
+            LOG_OUTPUT_MSG(acMsg, std::forward<Args>(aArgs)...);
+        }
+        else if constexpr (IsSupportedWideType<T>)
+        {
+            LOG_WOUTPUT_MSG(acMsg, std::forward<Args>(aArgs)...);
+        }
+    }
+    template <typename T, typename... Args> void LogInternal(const char* acLabel, const T* acMsg, Args&&... aArgs)
+    {
+        if constexpr (IsSupportedNarrowType<T>)
+        {
+            LOG_OUTPUT(acLabel, Colors::Narrow::Print, NarrowText::Reset, acMsg, std::forward<Args>(aArgs)...);
+        }
+        else if constexpr (IsSupportedWideType<T>)
+        {
+            LOG_WOUTPUT(
+                std::wstring(acLabel, acLabel + strlen(acLabel)).c_str(), Colors::Wide::Print, WideText::Reset, acMsg,
+                std::forward<Args>(aArgs)...);
+        }
+    }
 };
+
+#else
+
+#define LOG_PRINT(...)   ((void)0)
+#define LOG_INFO(...)    ((void)0)
+#define LOG_VERBOSE(...) ((void)0)
+#define LOG_WARN(...)    ((void)0)
+#define LOG_ERROR(...)   ((void)0)
+#define LOG_DEBUG(...)   ((void)0)
+
+struct Log;
+
+#endif

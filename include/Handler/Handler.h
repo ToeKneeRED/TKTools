@@ -10,8 +10,7 @@ template <typename Ret, typename... Args> struct HandlerImpl
         auto args = std::make_tuple(std::forward<Args>(aArgs)...);
         for (auto& func : m_funcs)
         {
-            if (func)
-                std::apply(func, args);
+            if (func) std::apply(func, args);
         }
     }
 
